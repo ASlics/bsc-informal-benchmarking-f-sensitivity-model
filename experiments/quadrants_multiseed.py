@@ -78,10 +78,12 @@ def main():
         print(f"{name}  ({PAPER[name]['label']})  target={spec['target']}")
         print("=" * 78, flush=True)
         gen = make_quadrant_generator(spec)
-        _, rho_bench, _, gamma_bench = compute_benchmark(
+        bench_summary, rho_bench, _, gamma_bench = compute_benchmark(
             gen, ["X0", "X1", "X2"], n_rows=n_rows, n_seeds=seeds_bench, verbose=False)
-        print(f"  benchmark ({seeds_bench} seeds): rho_bench={rho_bench:.4f}  "
-              f"gamma_bench={gamma_bench:.3f}", flush=True)
+        rho_bench_std = bench_summary.attrs["rho_bench_std"]
+        gamma_bench_std = bench_summary.attrs["gamma_bench_std"]
+        print(f"  benchmark ({seeds_bench} seeds): rho_bench={rho_bench:.4f}+-{rho_bench_std:.4f}  "
+              f"gamma_bench={gamma_bench:.3f}+-{gamma_bench_std:.3f}", flush=True)
 
         df = per_seed_dual(gen, seeds, n_rows)
         df.insert(0, "scenario", name)
@@ -93,9 +95,11 @@ def main():
         rfrac, gfrac = df["rho_robust"].mean(), df["gamma_robust"].mean()
         summary.append(dict(
             scenario=name, label=PAPER[name]["label"],
-            rho_bench=rho_bench, gamma_bench=gamma_bench,
+            rho_bench=rho_bench, rho_bench_std=rho_bench_std,
+            gamma_bench=gamma_bench, gamma_bench_std=gamma_bench_std,
             rho_break_mean=df["rho_break"].mean(), rho_break_std=df["rho_break"].std(ddof=0),
             gamma_break_mean=df["gamma_break"].mean(), gamma_break_std=df["gamma_break"].std(ddof=0),
+            rho_reached_frac=df["rho_reached"].mean(), gamma_reached_frac=df["gamma_reached"].mean(),
             rho_robust_frac=rfrac, gamma_robust_frac=gfrac,
             paper_rho=PAPER[name]["rho"], paper_gamma=PAPER[name]["gamma"]))
         print(f"  => rho_break   {df['rho_break'].mean():.4f}+-{df['rho_break'].std(ddof=0):.4f}  "

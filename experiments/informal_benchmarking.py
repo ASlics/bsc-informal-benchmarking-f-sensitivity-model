@@ -38,7 +38,7 @@ import matplotlib.pyplot as plt
 plt.rcParams.update({
     "font.size": 7, "axes.titlesize": 8, "axes.labelsize": 7,
     "xtick.labelsize": 6.5, "ytick.labelsize": 6.5, "legend.fontsize": 6,
-    "savefig.dpi": 220, "savefig.bbox": "tight", "figure.constrained_layout.use": False,
+    "savefig.dpi": 600, "savefig.bbox": "tight", "figure.constrained_layout.use": False,
 })
 COL_W = 3.35   # target single-column width in inches
 
@@ -154,6 +154,15 @@ def compute_benchmark(gen, x_cols, n_rows=5000, n_seeds=20, verbose=True):
     rho_bench = float(summary["rho_mean"].mean())            # mean_j: the average observed covariate
     gamma_argmax = summary["gamma_mean"].idxmax()
     gamma_bench = float(summary.loc[gamma_argmax, "gamma_mean"])   # max_j: the worst-case covariate
+
+    # Seed-to-seed spread of the benchmark, for the paper's error bars. The point estimates above
+    # aggregate per-covariate seed-means (mean_j / max_j); the spread re-applies the SAME
+    # aggregation within each seed (rho: mean_j rho_j(seed); gamma: max_j gamma_j(seed)) and takes
+    # the std over seeds. (rho_bench equals the mean of its per-seed values; gamma_bench, a max of
+    # seed-means, is a slightly more stable summary than the per-seed max used only for the spread.)
+    per_seed_bench = allres.groupby("seed").agg(rho=("rho_j", "mean"), gamma=("gamma_j", "max"))
+    summary.attrs["rho_bench_std"] = float(per_seed_bench["rho"].std(ddof=0))
+    summary.attrs["gamma_bench_std"] = float(per_seed_bench["gamma"].std(ddof=0))
 
     if verbose:
         print(f"\nStep 1 - benchmark rho per dropped covariate "

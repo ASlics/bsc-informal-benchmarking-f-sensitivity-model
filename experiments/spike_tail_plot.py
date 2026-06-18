@@ -138,7 +138,7 @@ def main():
     axR.margins(y=0.24)
 
     fig.subplots_adjust(left=0.16, right=0.86, top=0.95, bottom=0.07)
-    fig.savefig(OUT_PATH, dpi=200)
+    fig.savefig(OUT_PATH, dpi=600)
     print(f"wrote {OUT_PATH}")
 
 

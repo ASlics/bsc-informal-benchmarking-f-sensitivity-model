@@ -85,22 +85,25 @@ def main():
             axD.plot(U, or_x0[i], "-", color=cen_color[i], lw=1.4, zorder=3)
     axD.axhline(1.0, color="black", lw=0.6, alpha=0.35, zorder=2)
     axD.set_xlim(U[0], U[-1])
-    axD.set_ylim(bottom=0)
+    # headroom above the tallest bump so the legend sits in a clear band, not over the curves
+    ytop = float(np.nanmax([np.nanmax(c) for c in or_x0]))
+    axD.set_ylim(0, ytop * 1.7)
     axD.set_xlabel(r"covariate value  $u$")
     axD.set_ylabel(r"measured OR$(x, u)$")
     axD.set_title(r"(a) measured OR$(x, u)$: a bump marching into g's tail")
 
     handles = [Line2D([0], [0], color=base_color, ls="--", lw=1.6,
-                      label=f"{centers[0]:.2f} (baseline, in bulk)")]
+                      label=f"{centers[0]:.2f} (baseline)")]
     handles += [Line2D([0], [0], color=cen_color[int(i)], lw=1.4, label=f"{centers[i]:.2f}")
                 for i in march]
-    leg = axD.legend(handles=handles, loc="upper right", ncol=2, handlelength=1.3,
-                     columnspacing=1.0, labelspacing=0.3, framealpha=0.9,
-                     title="bump centre", title_fontsize=5.5)
+    leg = axD.legend(handles=handles, loc="upper center", ncol=3, handlelength=1.2,
+                     columnspacing=0.9, labelspacing=0.25, handletextpad=0.4,
+                     borderpad=0.4, framealpha=0.9, title="bump centre",
+                     title_fontsize=5.5)
     leg.get_frame().set_linewidth(0.5)
 
     pos = np.arange(n)
-    xlabels = [f"{centers[i]:.2f}\n{overlaps[i]:.3f}" for i in range(n)]
+    xlabels = [f"{centers[i]:.2f}" for i in range(n)]
     bar_colors = [cen_color[i] for i in range(n)]
 
     # (b) Gamma_j stays matched as the centre marches left -------------------- #
@@ -111,7 +114,7 @@ def main():
                  ha="center", va="bottom", fontsize=5.5)
     axG.set_xticks(pos)
     axG.set_xticklabels(xlabels, fontsize=5.5)
-    axG.set_xlabel(r"bump centre  /  overlap")
+    axG.set_xlabel(r"bump centre")
     axG.set_ylabel(r"$X_0$ worst-case $\Gamma_j$")
     axG.set_title(r"(b) MSM benchmark $\Gamma_j$ stays matched")
     axG.margins(y=0.22)
@@ -124,13 +127,13 @@ def main():
                  ha="center", va="bottom", fontsize=5.5)
     axR.set_xticks(pos)
     axR.set_xticklabels(xlabels, fontsize=5.5)
-    axR.set_xlabel(r"bump centre  /  overlap")
+    axR.set_xlabel(r"bump centre")
     axR.set_ylabel(r"$X_0$ average $\rho_j$")
     axR.set_title(r"(c) f-sensitivity benchmark $\rho_j$ collapses")
     axR.margins(y=0.24)
 
     fig.subplots_adjust(left=0.16, right=0.86, top=0.95, bottom=0.07)
-    fig.savefig(OUT_PATH, dpi=200)
+    fig.savefig(OUT_PATH, dpi=600, bbox_inches="tight", pad_inches=0.03)
     print(f"wrote {OUT_PATH}")
 
 
