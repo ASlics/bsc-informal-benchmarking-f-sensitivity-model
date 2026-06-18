@@ -78,8 +78,8 @@ def main():
 
     # ---------------------------- figure ----------------------------------- #
     fig, (axD, axG, axR) = plt.subplots(
-        3, 1, figsize=(col_w, 6.4),
-        gridspec_kw=dict(hspace=0.55, height_ratios=[1.25, 1.0, 1.0]))
+        3, 1, figsize=(col_w, 5.2),
+        gridspec_kw=dict(hspace=0.5, height_ratios=[1.25, 1.0, 1.0]))
 
     # (a) distributions: X0 at a few spike heights --------------------------- #
     # all spike heights, dark -> light; the no-spike baseline as a dashed grey line

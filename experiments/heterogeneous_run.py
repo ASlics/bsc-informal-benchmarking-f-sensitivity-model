@@ -131,7 +131,7 @@ def empirical(s_x0, label):
         np.random.seed(s)
         data_obj, _ = gen.generate(N, ib.N_JOBS, os.path.join(tmp, f"{label}_{s}.csv"))
         df = data_obj.data
-        dx = ib.benchmark_per_covariate(df, ["X0"], min_arm_count=40, min_cell_count=10)
+        dx = ib.benchmark_per_covariate(df, ["X0"])   # pooled (single covariate: nothing to condition on)
         rx.append(float(dx["rho_j"].iloc[0]))
         gx.append(float(dx["gamma_j"].iloc[0]))
         orx.append(measure_or(df, "X0"))

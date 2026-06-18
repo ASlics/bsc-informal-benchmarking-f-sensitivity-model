@@ -1,14 +1,15 @@
 """Informal-benchmarking (IB) library: the faithful f-sensitivity benchmark rho, the
 Figure-1 empirical-curve experiment, and the quadrant data generators.
 
-Benchmark rho (rho_bench) — an outcome-free yardstick from the OBSERVED covariates: within
-each reduced stratum s = X_{-j}, the rho that dropping X_j consumes is the symmetric KL
-between the treated/control distributions of X_j; the covariate's benchmark averages it over
-the occupied strata:
-    rho_j(s) = max(D_KL(P(X_j|s,T=1)||P(X_j|s,T=0)), D_KL(P(X_j|s,T=0)||P(X_j|s,T=1)))
-    rho_j    = mean_s rho_j(s),    rho_bench = max_j rho_j
-Mirrors the MSM benchmark Gamma_j = max_s OR(s) on the same likelihood-ratio object, but
-f-sensitivity averages where the MSM takes the worst-case sup.
+Benchmark rho (rho_bench) — a yardstick from the OBSERVED covariates and treatment: dropping
+X_j, the rho it consumes is the symmetric KL between the treated/control distributions of X_j
+measured over the WHOLE sample (POOLED, not conditioned on the other covariates X_{-j}):
+    rho_j     = max(D_KL(P(X_j|T=1)||P(X_j|T=0)), D_KL(P(X_j|T=0)||P(X_j|T=1)))
+    rho_bench = mean_j rho_j           (the AVERAGE observed covariate; Gamma_bench = max_j Gamma_j)
+Mirrors the MSM benchmark Gamma_j = max_v OR(v) on the same likelihood-ratio object, but
+f-sensitivity reads an average divergence where the MSM takes the worst-case level. There is no
+stratification (no max_s / mean_s): the pooled imbalance is confounded by any kept covariate
+correlated with X_j, so the DGP keeps the observed covariates independent.
 
 This is the shared library imported by the paper's experiment runners (heterogeneous_run,
 spike_tail_run, quadrants_multiseed); it needs only numpy/pandas/matplotlib. Run it directly
@@ -90,7 +91,7 @@ def x_cols_for(p_x):
 
 
 # =========================================================================== #
-# The faithful benchmark rho (outcome-free, from observed covariates)
+# The faithful benchmark rho (from observed covariates and treatment)
 # =========================================================================== #
 def kl_discrete(p, q, eps=1e-12):
     """D_KL(p || q) for discrete distributions. Terms with p_i == 0 contribute 0; the
@@ -103,77 +104,64 @@ def kl_discrete(p, q, eps=1e-12):
     return float(np.sum(p[mask] * np.log(p[mask] / q[mask])))
 
 
-def benchmark_per_covariate(df, x_cols, t_col="T", min_arm_count=40, min_cell_count=10):
-    """Drop each X_j and measure the arm shift within each reduced stratum s = X_{-j}:
-        rho_j   = mean_s symmetric-KL(P(X_j|s,T=1), P(X_j|s,T=0))  (f-sensitivity, KL)
-        Gamma_j = max_s max_v max(OR, 1/OR)                        (MSM / Tan companion)
-    A stratum counts only with >= min_arm_count units per arm AND every level of X_j seen
-    >= min_cell_count times per arm (the cell guard stops a near-empty cell, where KL and OR
-    explode, from hijacking the max). Outcome Y is never read. Returns a per-covariate frame."""
+def benchmark_per_covariate(df, x_cols, t_col="T"):
+    """Drop each X_j and measure the arm shift over the WHOLE sample (POOLED): compare X_j's
+    treated/control distributions directly, without conditioning on the other covariates X_{-j}.
+        rho_j   = symmetric-KL(P(X_j|T=1), P(X_j|T=0))   (f-sensitivity, KL)
+        gamma_j = max_v max(OR(v), 1/OR(v))               (MSM / Tan companion, worst level)
+    No stratification, so there is no max_s / mean_s -- each covariate yields a single rho_j and
+    gamma_j. The pooled imbalance is confounded by any kept covariate correlated with X_j, so the
+    DGP must keep the observed covariates independent for rho_j to read X_j alone. Outcome Y is
+    never read. Returns a per-covariate frame."""
     rows = []
     for j in x_cols:
-        s_cols = [c for c in x_cols if c != j]
         levels = sorted(df[j].unique())
-        grouped = list(df.groupby(s_cols)) if s_cols else [((), df)]
-        n_total = len(grouped)
-        rho_strata, gamma_strata = [], []
-        for _, g in grouped:
-            tr = g.loc[g[t_col] == 1, j]
-            ct = g.loc[g[t_col] == 0, j]
-            if len(tr) < min_arm_count or len(ct) < min_arm_count:
-                continue
-            tr_cnt = np.array([(tr == lv).sum() for lv in levels], dtype=float)
-            ct_cnt = np.array([(ct == lv).sum() for lv in levels], dtype=float)
-            if tr_cnt.min() < min_cell_count or ct_cnt.min() < min_cell_count:
-                continue
-            p1 = tr_cnt / tr_cnt.sum()
-            p0 = ct_cnt / ct_cnt.sum()
-            rho_strata.append(max(kl_discrete(p1, p0), kl_discrete(p0, p1)))
-            ratio = p1 / p0
-            gamma_strata.append(float(np.max(np.maximum(ratio, 1.0 / ratio))))
+        tr = df.loc[df[t_col] == 1, j]
+        ct = df.loc[df[t_col] == 0, j]
+        tr_cnt = np.array([(tr == lv).sum() for lv in levels], dtype=float)
+        ct_cnt = np.array([(ct == lv).sum() for lv in levels], dtype=float)
+        p1 = tr_cnt / tr_cnt.sum()                       # P(X_j | T=1)
+        p0 = ct_cnt / ct_cnt.sum()                       # P(X_j | T=0)
+        # rho_j is an average-divergence object (symmetric KL); gamma_j the worst-case level OR.
+        ratio = p1 / np.clip(p0, 1e-12, None)
         rows.append({"covariate": j,
-                     # rho_j averages the per-stratum f-divergence over occupied groups
-                     # (rho is an average-divergence object); Gamma_j keeps the worst-case max.
-                     "rho_j": float(np.mean(rho_strata)) if rho_strata else np.nan,
-                     "gamma_j": max(gamma_strata) if gamma_strata else np.nan,
-                     "n_strata_used": len(rho_strata), "n_strata_total": n_total})
+                     "rho_j": max(kl_discrete(p1, p0), kl_discrete(p0, p1)),
+                     "gamma_j": float(np.max(np.maximum(ratio, 1.0 / ratio)))})
     return pd.DataFrame(rows)
 
 
-def compute_benchmark(gen, x_cols, n_rows=5000, n_seeds=20, min_arm_count=40, verbose=True):
-    """Run the benchmark over many seeds and aggregate. Returns (summary_df, rho_bench,
-    argmax_covariate, gamma_bench); rho_bench = max_j mean_seed rho_j is the IB budget and
-    argmax_covariate is the load-bearing covariate that attains it."""
+def compute_benchmark(gen, x_cols, n_rows=5000, n_seeds=20, verbose=True):
+    """Run the pooled benchmark over many seeds and aggregate. Returns (summary_df, rho_bench,
+    gamma_argmax, gamma_bench); rho_bench = mean_j mean_seed rho_j averages over the observed
+    covariates (the f-sensitivity budget), while gamma_bench = max_j mean_seed gamma_j keeps the
+    MSM worst-case covariate and gamma_argmax names it."""
     tmp = tempfile.mkdtemp()
     per_seed = []
     for seed in range(n_seeds):
         np.random.seed(seed)
         data_obj, _ = gen.generate(n_rows, N_JOBS, os.path.join(tmp, f"bench_{seed}.csv"))
-        d = benchmark_per_covariate(data_obj.data, x_cols, min_arm_count=min_arm_count)
+        d = benchmark_per_covariate(data_obj.data, x_cols)
         d["seed"] = seed
         per_seed.append(d)
     allres = pd.concat(per_seed, ignore_index=True)
 
     summary = (allres.groupby("covariate")
                .agg(rho_mean=("rho_j", "mean"), rho_std=("rho_j", "std"),
-                    gamma_mean=("gamma_j", "mean"), gamma_std=("gamma_j", "std"),
-                    strata_used=("n_strata_used", "mean"),
-                    strata_total=("n_strata_total", "mean"))
+                    gamma_mean=("gamma_j", "mean"), gamma_std=("gamma_j", "std"))
                .reindex(x_cols))
     summary["role"] = [ROLE.get(c, "") for c in summary.index]
 
-    argmax_cov = summary["rho_mean"].idxmax()
-    rho_bench = float(summary.loc[argmax_cov, "rho_mean"])
-    gamma_bench = float(summary["gamma_mean"].max())
+    rho_bench = float(summary["rho_mean"].mean())            # mean_j: the average observed covariate
+    gamma_argmax = summary["gamma_mean"].idxmax()
+    gamma_bench = float(summary.loc[gamma_argmax, "gamma_mean"])   # max_j: the worst-case covariate
 
     if verbose:
         print(f"\nStep 1 - benchmark rho per dropped covariate "
               f"({n_seeds} seeds, N={n_rows}, DIM={len(x_cols)}):")
         print(summary.round(4).to_string())
-        print(f"\n  rho_bench  = max_j rho_j = {rho_bench:.4f}  (load-bearing covariate: "
-              f"{argmax_cov} = {ROLE.get(argmax_cov,'')})")
-        print(f"  gamma_bench (MSM companion) = {gamma_bench:.3f}")
-    return summary, rho_bench, argmax_cov, gamma_bench
+        print(f"\n  rho_bench   = mean_j rho_j = {rho_bench:.4f}  (averaged over {len(x_cols)} covariates)")
+        print(f"  gamma_bench = max_j gamma_j = {gamma_bench:.3f}  (worst covariate: {gamma_argmax})")
+    return summary, rho_bench, gamma_argmax, gamma_bench
 
 
 # =========================================================================== #
@@ -293,35 +281,44 @@ def run_empirical_curves(out_png=None, n=EMP_N, n_seeds=5, verbose=True):
 
 
 # =========================================================================== #
-# Quadrant data generators (the breakdown/verdict runner lives in quadrants_multiseed.py,
+# Quadrant data generators (the breakdown/conclusion runner lives in quadrants_multiseed.py,
 # which imports make_quadrant_generator, compute_benchmark and QUADRANT_SPECS from here).
 # =========================================================================== #
-# X0 is the BENCHMARKED covariate (its prevalence p0 / coefficient b0 set per quadrant); X1,
-# X2 are a fixed common-moderate backbone. rho is an AVERAGE (KL) and Gamma a WORST-CASE (sup
-# OR), so the two robustness verdicts can DISAGREE. Lever = shape of the strongest benchmarked
-# covariate: RARE big-OR -> small rho_bench, large gamma_bench (rho-robust, Gamma-NOT); COMMON
-# moderate -> the reverse; weak/strong covariate + weak/strong U -> both robust / both not.
-QUADRANT_BACKBONE = dict(p_back=0.45, b_back=0.50)   # X1, X2: fixed common-moderate covariates
+# Each scenario sets the SHAPE of all three observed covariates via per-covariate (p_x, beta_t)
+# lists, because rho_bench = mean_j rho_j now averages over covariates while gamma_bench =
+# max_j gamma_j keeps the worst one. The two budgets therefore read the covariate SET
+# differently, which is the lever for disagreement:
+#   - a single RARE-STRONG covariate among weak ones lifts max_j gamma (large gamma_bench) while
+#     mean_j rho stays small (rho-robust, Gamma-NOT);
+#   - a UNIFORMLY common-moderate set lifts mean_j rho (large rho_bench) while no single gamma is
+#     large (Gamma-robust, rho-NOT);
+#   - all-weak vs all-strong covariates, with weak/strong U, give both-robust / both-not.
+# Covariates are drawn independently, so the pooled per-covariate rho_j reads each one alone.
 QUADRANT_TBASE = -0.6
 QUADRANT_SPECS = {
-    "both_robust":          dict(p0=0.45, b0=0.40, u_prob=0.35, t_u=-0.35, y_effect=0.5,
-                                 target="both robust"),
-    "rho_robust_gamma_not": dict(p0=0.16, b0=1.75, u_prob=0.40, t_u=-0.70, y_effect=1.2,
-                                 target="rho robust, Gamma NOT (rare strong covariate)"),
-    "gamma_robust_rho_not": dict(p0=0.58, b0=0.95, u_prob=0.40, t_u=-0.60, y_effect=2.8,
-                                 target="Gamma robust, rho NOT (common moderate covariate)"),
-    "both_not_robust":      dict(p0=0.50, b0=1.45, u_prob=0.40, t_u=-0.90, y_effect=2.5,
-                                 target="both NOT robust"),
+    "both_robust":          dict(p_x=(0.45, 0.45, 0.45), beta_t=(0.40, 0.40, 0.40),
+                                 u_prob=0.35, t_u=-0.35, y_effect=0.5,
+                                 target="both robust (all-weak covariates)"),
+    "rho_robust_gamma_not": dict(p_x=(0.16, 0.45, 0.45), beta_t=(1.75, 0.40, 0.40),
+                                 u_prob=0.40, t_u=-0.70, y_effect=1.2,
+                                 target="rho robust, Gamma NOT (one rare-strong covariate, rest weak)"),
+    "gamma_robust_rho_not": dict(p_x=(0.50, 0.50, 0.50), beta_t=(1.10, 1.10, 1.10),
+                                 u_prob=0.40, t_u=-0.70, y_effect=3.5,
+                                 target="Gamma robust, rho NOT (all common-moderate covariates)"),
+    "both_not_robust":      dict(p_x=(0.50, 0.50, 0.50), beta_t=(1.65, 1.65, 1.65),
+                                 u_prob=0.45, t_u=-1.15, y_effect=4.5,
+                                 target="both NOT robust (all-strong covariates)"),
 }
 
 
 def make_quadrant_generator(spec):
-    """3 binary covariates: X0 = the benchmarked covariate (p0, b0 from the spec), X1/X2 the
-    fixed common-moderate backbone; hidden U set by (u_prob, t_u, y_effect)."""
-    p_x = [spec["p0"], QUADRANT_BACKBONE["p_back"], QUADRANT_BACKBONE["p_back"]]
-    beta_t = [spec["b0"], QUADRANT_BACKBONE["b_back"], QUADRANT_BACKBONE["b_back"]]
-    return make_generator_ib(p_x=p_x, beta_t=beta_t, u_prob=spec["u_prob"], t_base=QUADRANT_TBASE,
-                             t_u=spec["t_u"], y_effect=spec["y_effect"], true_ate=1.0)
+    """3 binary covariates whose per-covariate (p_x, beta_t) shapes are set by the spec, so the
+    averaged f-sensitivity budget rho_bench = mean_j rho_j and the worst-case MSM budget
+    gamma_bench = max_j gamma_j can disagree (see the scenario table above); hidden U is set by
+    (u_prob, t_u, y_effect)."""
+    return make_generator_ib(p_x=spec["p_x"], beta_t=spec["beta_t"], u_prob=spec["u_prob"],
+                             t_base=QUADRANT_TBASE, t_u=spec["t_u"], y_effect=spec["y_effect"],
+                             true_ate=1.0)
 
 
 if __name__ == "__main__":

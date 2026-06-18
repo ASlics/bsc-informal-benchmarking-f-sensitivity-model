@@ -4,7 +4,7 @@ The paper's Table 1 reports the dual breakdown on a SINGLE seed (break_seeds=1) 
 benchmark uses many seeds. This script recomputes, for each of the four scenarios, the
 breakdown (rho_break via f-sensitivity EVaR, gamma_break via MSM CVaR) INDEPENDENTLY on
 each of N seeds, and reports per-seed values, mean +/- std, and how often each framework's
-verdict (robust <=> break > bench) matches the paper's table verdict. The benchmark is
+conclusion (robust <=> break > bench) matches the paper's table conclusion. The benchmark is
 seed-averaged exactly as in the paper.
 
 Usage:  python quadrants_multiseed.py [n_seeds=5] [seeds_bench=15] [n_rows=4000] [scenario_filter]
@@ -27,7 +27,7 @@ from informal_benchmarking import (make_quadrant_generator, compute_benchmark,  
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from data_generation.DataObject import DataObject                               # noqa: E402
 
-# Verdicts as printed in the paper's Table 1, keyed by scenario.
+# Conclusions as printed in the paper's Table 1, keyed by scenario.
 PAPER = {
     "both_robust":          dict(label="weak covariate, weak U",     rho=True,  gamma=True),
     "rho_robust_gamma_not": dict(label="rare strong covariate",      rho=True,  gamma=False),
