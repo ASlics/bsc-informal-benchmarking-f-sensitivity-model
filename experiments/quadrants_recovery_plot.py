@@ -1,10 +1,3 @@
-"""Quadrants recovery figure -- plotting step (reads quadrants_recovery_summary.csv).
-
-Grouped bar chart over the four scenarios, two panels: (a) rho (KL), (b) gamma (odds ratio), each
-comparing the observed-covariate benchmark against the per-x worst-case value U induces. rho_bench
->= rho_true in every scenario -> the IB belief holds. Run quadrants_recovery_run.py first.
-Writes quadrants_recovery.png.
-"""
 import os
 import sys
 
@@ -23,7 +16,7 @@ SHORT = {
     "gamma_robust_rho_not": "common-\nmoderate $X$",
     "both_not_robust":      "strong $X$,\nstrong $U$",
 }
-C_BENCH, C_TRUE = "#4878a8", "#555555"   # observed-covariate benchmark / true value of U
+C_BENCH, C_TRUE = "#4878a8", "#555555"
 
 
 def _panel(ax, x, w, labels, bench, bench_sd, true_v, title, ylab):
@@ -58,7 +51,7 @@ def main():
            r"(a) f-sensitivity $\rho$ (KL)", r"$\rho$")
     _panel(axB, x, w, labels, df["gamma_bench"], df["gamma_bench_std"], df["gamma_true"],
            r"(b) MSM $\Gamma$ (odds ratio)", r"$\Gamma$")
-    axB.axhline(1.0, color="0.6", lw=0.7, ls=":")   # no-confounding reference on the MSM scale
+    axB.axhline(1.0, color="0.6", lw=0.7, ls=":")
 
     handles, lbls = axA.get_legend_handles_labels()
     fig.legend(handles, lbls, loc="lower center", ncol=2, frameon=False,

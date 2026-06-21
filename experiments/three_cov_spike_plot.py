@@ -1,10 +1,3 @@
-"""Three-covariate spike IB demo (Gamma rises, rho flat) -- plotting step (reads
-experiments/data/three_cov_spike.json).
-
-Three panels: (a) measured OR(x,u) for X0 at a few spike heights (no-spike baseline dashed);
-(b) Gamma_bench vs spike height (climbs); (c) rho_bench vs spike height (flat). Run
-three_cov_spike_run.py first. Writes three_cov_spike_experiment.png.
-"""
 import os
 import sys
 import json
@@ -63,7 +56,6 @@ def main():
         3, 1, figsize=(col_w, 5.2),
         gridspec_kw=dict(hspace=0.5, height_ratios=[1.25, 1.0, 1.0]))
 
-    # (a) distributions
     for i in range(n):
         if amps[i] == 0:
             axD.plot(U, or_x0[i], "--", color=base_color, lw=1.6, zorder=4)
@@ -88,7 +80,6 @@ def main():
     xlabels = [f"{a:.1f}" for a in amps]
     bar_colors = [amp_color[i] for i in range(n)]
 
-    # (b) Gamma_bench climbs
     axG.bar(pos, gam_bench, 0.68, yerr=gam_bench_sd, color=bar_colors,
             capsize=2.5, edgecolor="black", linewidth=0.5, error_kw=dict(lw=0.8))
     for p in pos:
@@ -100,7 +91,6 @@ def main():
     axG.set_title(r"(b) MSM benchmark $\Gamma_{\mathrm{bench}}$")
     axG.margins(y=0.24)
 
-    # (c) rho_bench stays flat
     axR.bar(pos, rho_bench, 0.68, yerr=rho_bench_sd, color=bar_colors,
             capsize=2.5, edgecolor="black", linewidth=0.5, error_kw=dict(lw=0.8))
     for p in pos:

@@ -1,14 +1,3 @@
-"""Quadrants recovery table: does the benchmark recover the rho (and gamma) the hidden U induces,
-across the four covariate scenarios?
-
-U is binary and the propensity is known, so the (f,rho) value and worst-case ratio U induces are
-closed form (no solver). For each scenario we read, on the same data: rho_bench / gamma_bench (the
-benchmarks over the observed covariates, max_j, seed-averaged) and rho_true / gamma_true (the value
-U induces, per-x worst case -- the strict definition). The IB belief holds where rho_bench >=
-rho_true. Writes quadrants_recovery_summary.csv.
-
-Usage:  python experiments/quadrants_recovery_run.py [seeds_bench=15] [n_rows=4000]
-"""
 import os
 import sys
 
@@ -19,8 +8,8 @@ try:
 except (AttributeError, ValueError):
     pass
 
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))                 # experiments/
-from informal_benchmarking import (make_quadrant_generator, compute_benchmark,  # noqa: E402
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+from informal_benchmarking import (make_quadrant_generator, compute_benchmark,
                                     true_rho_from_U, true_gamma_from_U,
                                     QUADRANT_SPECS, QUADRANT_TBASE)
 

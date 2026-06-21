@@ -1,12 +1,3 @@
-"""Three-covariate IB demo (Gamma_bench rises, rho_bench flat) -- DGP / compute step
-(the multi-covariate mirror of spike_tail_run.py).
-
-X0, X1, X2 ~ g(u) independently. X1, X2 carry a moderate body bump; X0 carries the same body plus a
-tight spike in g's sparse left tail whose height we grow. As the spike grows, Gamma_0 (and so
-Gamma_bench) climbs while rho_0 barely moves and rho_bench stays flat -- the MSM benchmark reacts to
-a rare confounder the f-sensitivity benchmark scores as small. Writes
-experiments/data/three_cov_spike.json; render with three_cov_spike_plot.py.
-"""
 import os
 import sys
 import json
@@ -18,14 +9,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from data_generation.Generator import Generator
 import informal_benchmarking as ib
 
-K = 25                       # covariate levels on [0,1]
-N = 50000                    # samples per seed
+K = 25
+N = 50000
 N_SEEDS = 5
-FLOOR = 0.08                 # uniform floor on g(u): every level stays two-armed (positivity)
-G_CENTER, G_WIDTH = 0.60, 0.22   # g concentrates mass in the bulk; its left tail is sparse
-BODY_CENTER, BODY_WIDTH, BODY_AMP = 0.55, 0.20, 0.95   # shared body bump (sets the flat rho baseline)
-SPIKE_CENTER, SPIKE_WIDTH = 0.22, 0.030                # X0's tight spike in the sparse left tail
-SPIKE_AMPS = [0.0, 1.0, 1.5, 2.0, 2.5, 3.0]            # X0 spike logit height: none -> tall
+FLOOR = 0.08
+G_CENTER, G_WIDTH = 0.60, 0.22
+BODY_CENTER, BODY_WIDTH, BODY_AMP = 0.55, 0.20, 0.95
+SPIKE_CENTER, SPIKE_WIDTH = 0.22, 0.030
+SPIKE_AMPS = [0.0, 1.0, 1.5, 2.0, 2.5, 3.0]
 
 U = np.linspace(0.0, 1.0, K)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -41,27 +32,22 @@ G = (1.0 - FLOOR) * _graw / _graw.sum() + FLOOR * np.ones(K) / K
 
 
 def _dip(center, width, amp):
-    """Mean-zero (over g) logit dip -- a bump in the odds ratio, baseline propensity ~0.5."""
     raw = _gauss(center, width)
     return -amp * (raw - float((G * raw).sum()))
 
 
 def spike_mass(width=SPIKE_WIDTH):
-    """Probability mass under the spike = E_g[spike shape] (small: it sits in g's sparse tail)."""
     return float((G * _gauss(SPIKE_CENTER, width)).sum())
 
 
-S_BODY = _dip(BODY_CENTER, BODY_WIDTH, BODY_AMP)   # shared body bump (X1, X2, and X0's base)
+S_BODY = _dip(BODY_CENTER, BODY_WIDTH, BODY_AMP)
 
 
 def shape_x0(spike_amp):
-    """X0 = the shared body bump + a tail spike of the given logit height."""
     return S_BODY + _dip(SPIKE_CENTER, SPIKE_WIDTH, spike_amp)
 
 
 def make_gen(s0):
-    """X0 carries s0; X1, X2 carry the plain body bump. All three ~ g(u) independently; treatment
-    logistic in the sum of shapes."""
     cum = np.cumsum(G.astype(float))
     cum /= cum[-1]
     shapes = [s0, S_BODY, S_BODY]
@@ -85,8 +71,6 @@ def make_gen(s0):
 
 
 def run_step(spike_amp):
-    """Grow X0's spike to `spike_amp` (X1, X2 stay plain). Generate over N_SEEDS seeds, benchmark
-    all three, return seed-means of per-covariate rho_j / Gamma_j, the bench maxes, Gamma argmax, OR(u)."""
     gen = make_gen(shape_x0(spike_amp))
     tmp = tempfile.mkdtemp()
     rho = {j: [] for j in ("X0", "X1", "X2")}

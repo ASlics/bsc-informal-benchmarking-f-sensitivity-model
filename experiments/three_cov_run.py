@@ -1,12 +1,3 @@
-"""Three-covariate IB demo (Gamma_bench flat, rho_bench rises) -- DGP / compute step
-(the multi-covariate mirror of heterogeneous_run.py).
-
-Exercises genuine informal benchmarking: the benchmark is a max over three independent covariates
-and the argmax switches mid-sweep. X0, X1, X2 ~ g(u) (left-heavy) each carry a fixed-shape bump of
-matched peak depth (so Gamma_bench stays matched); X1, X2 anchor at 0.8 while X0's centre marches
-LEFT into the dense head of g, so rho_0 climbs past the X1/X2 baseline and rho_bench rises. Writes
-experiments/data/three_cov.json; render with three_cov_plot.py.
-"""
 import os
 import sys
 import json
@@ -18,15 +9,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from data_generation.Generator import Generator
 import informal_benchmarking as ib
 
-K = 25                       # covariate levels on [0,1]
-N = 50000                    # samples per seed
+K = 25
+N = 50000
 N_SEEDS = 5
-FLOOR = 0.06                 # uniform floor on g(u): every level stays two-armed (positivity)
-G_SLOPE = 3.0                # g(u) ~ exp(-G_SLOPE u): left-heavy, so small u has more mass
-BUMP_WIDTH = 0.055           # fixed narrow bump width (the 'same shape')
-BUMP_AMP = 1.8               # sets the reference peak logit depth (held constant per centre)
-ANCHOR = 0.80                # X1, X2 sit here; also the reference centre for matched Gamma
-X0_CENTERS = [0.80, 0.60, 0.40, 0.20]   # X0's bump centre marches left into the dense head of g
+FLOOR = 0.06
+G_SLOPE = 3.0
+BUMP_WIDTH = 0.055
+BUMP_AMP = 1.8
+ANCHOR = 0.80
+X0_CENTERS = [0.80, 0.60, 0.40, 0.20]
 
 U = np.linspace(0.0, 1.0, K)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -37,18 +28,14 @@ def _gauss(c, w):
     return np.exp(-((U - c) / w) ** 2)
 
 
-# Left-heavy g: a fixed-shape bump covers more mass as its centre marches left -> rho rises.
 _graw = np.exp(-G_SLOPE * U)
 G = (1.0 - FLOOR) * _graw / _graw.sum() + FLOOR * np.ones(K) / K
 
-# Anchor every bump to the reference centre's peak dip so Gamma is matched across covariates.
 _ref_raw = _gauss(ANCHOR, BUMP_WIDTH)
 TARGET_DEPTH = BUMP_AMP * (float(_ref_raw.max()) - float((G * _ref_raw).sum()))
 
 
 def shape(center):
-    """Downward bump at `center`, mean-zeroed under g and rescaled to peak depth TARGET_DEPTH
-    -> matched Gamma; only the covered mass (and rho) move."""
     raw = _gauss(center, BUMP_WIDTH)
     mean = float((G * raw).sum())
     amp = TARGET_DEPTH / (float(raw.max()) - mean)
@@ -56,12 +43,10 @@ def shape(center):
 
 
 def overlap(center):
-    """Data mass under the bump = E_g[bump]; grows as the centre marches into g's dense head."""
     return float((G * _gauss(center, BUMP_WIDTH)).sum())
 
 
 def make_gen(s0, s1, s2):
-    """Three covariates X0, X1, X2 ~ g(u) independently; treatment logistic in the sum of shapes."""
     cum = np.cumsum(G.astype(float))
     cum /= cum[-1]
     shapes = [s0, s1, s2]
@@ -85,8 +70,6 @@ def make_gen(s0, s1, s2):
 
 
 def run_step(c_x0):
-    """X1, X2 anchored at ANCHOR; X0 at c_x0. Generate over N_SEEDS seeds, benchmark all three,
-    return seed-means of per-covariate rho_j / Gamma_j, the bench maxes, the rho argmax, OR(u)."""
     s0, s1, s2 = shape(c_x0), shape(ANCHOR), shape(ANCHOR)
     gen = make_gen(s0, s1, s2)
     tmp = tempfile.mkdtemp()

@@ -1,10 +1,3 @@
-"""Three-covariate IB demo (Gamma flat, rho rises) -- plotting step (reads
-experiments/data/three_cov.json).
-
-Three panels: (a) measured OR(x,u) for X0's bump at its marching centres (X0-at-0.8 baseline
-dashed); (b) Gamma_bench vs X0 centre (matched); (c) rho_bench vs X0 centre (rises). Run
-three_cov_run.py first. Writes three_cov_experiment.png.
-"""
 import os
 import sys
 import json
@@ -50,7 +43,6 @@ def main():
         "axes.titlepad": 4, "axes.linewidth": 0.7,
     })
 
-    # single-hue gradient dark -> light; the X0-at-0.8 step (= X1/X2 anchor) is neutral grey
     base_color = "0.5"
     cmap = plt.get_cmap("Blues")
     march = np.arange(1, n)
@@ -63,7 +55,6 @@ def main():
         3, 1, figsize=(col_w, 5.2),
         gridspec_kw=dict(hspace=0.5, height_ratios=[1.25, 1.0, 1.0]))
 
-    # (a) distributions
     for i in range(n):
         if i == 0:
             axD.plot(U, or_x0[i], "--", color=base_color, lw=1.6, zorder=4)
@@ -89,7 +80,6 @@ def main():
     xlabels = [f"{centers[i]:.2f}" for i in range(n)]
     bar_colors = [cen_color[i] for i in range(n)]
 
-    # (b) Gamma_bench stays matched
     axG.bar(pos, gam_bench, 0.68, yerr=gam_bench_sd, color=bar_colors,
             capsize=2.5, edgecolor="black", linewidth=0.5, error_kw=dict(lw=0.8))
     for p in pos:
@@ -101,7 +91,6 @@ def main():
     axG.set_title(r"(b) MSM benchmark $\Gamma_{\mathrm{bench}}$")
     axG.margins(y=0.22)
 
-    # (c) rho_bench rises
     axR.bar(pos, rho_bench, 0.68, yerr=rho_bench_sd, color=bar_colors,
             capsize=2.5, edgecolor="black", linewidth=0.5, error_kw=dict(lw=0.8))
     for p in pos:
