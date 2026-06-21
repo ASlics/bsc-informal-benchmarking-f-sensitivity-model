@@ -304,7 +304,7 @@ def run_empirical_curves(out_png=None, n=EMP_N, n_seeds=5, verbose=True):
     band_color = {"dotted": "crimson", "dashed": "steelblue"}
     fig, axes = plt.subplots(2, 1, figsize=(COL_W, 4.6))
     titles = {"matched_gamma": r"(a) similar $\Gamma$, different $\rho$",
-              "matched_rho": r"(b) similar $\rho$, $\Gamma$ explodes"}
+              "matched_rho": r"(b) similar $\rho$, different $\Gamma$"}
     for ax, name in zip(axes, ("matched_gamma", "matched_rho")):
         if verbose:
             print(f"\n{name} (empirical, N={n}, K={EMP_K}, {n_seeds} seeds):")
@@ -334,7 +334,7 @@ def run_empirical_curves(out_png=None, n=EMP_N, n_seeds=5, verbose=True):
         ax.set_title(titles[name])
         ax.legend(loc="upper right")
         ax.set_ylim(bottom=0)
-    axes[-1].set_xlabel(r"$u$  (dropped confounder level)")
+    axes[-1].set_xlabel(r"$u$  (dropped confounder value)")
     plt.tight_layout()
     fig.savefig(out_png)
     print(f"\nwrote {out_png}")
