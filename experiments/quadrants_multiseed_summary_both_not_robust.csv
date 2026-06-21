@@ -1,2 +1,0 @@
-scenario,label,rho_bench,gamma_bench,rho_break_mean,rho_break_std,gamma_break_mean,gamma_break_std,rho_robust_frac,gamma_robust_frac,paper_rho,paper_gamma
-both_not_robust,"strong covariate, strong U",0.1934283695055127,2.130998874254432,0.09093806037382976,0.009215436391122551,1.46104126390246,0.04415012360943016,0.0,0.0,False,False

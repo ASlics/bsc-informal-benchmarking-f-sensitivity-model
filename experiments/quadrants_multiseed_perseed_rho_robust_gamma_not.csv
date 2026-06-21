@@ -1,2 +1,0 @@
-scenario,seed,rho_break,rho_reached,gamma_break,gamma_reached,rho_bench,gamma_bench,rho_robust,gamma_robust
-rho_robust_gamma_not,0,1.0,False,2.486927659028528,True,0.08037379579511687,4.08786151462686,True,False

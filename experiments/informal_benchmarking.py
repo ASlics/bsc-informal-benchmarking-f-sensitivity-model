@@ -1,27 +1,21 @@
-"""Informal-benchmarking (IB) library: the faithful f-sensitivity benchmark rho, the
-Figure-1 empirical-curve experiment, and the quadrant data generators.
+"""Shared informal-benchmarking (IB) library: the faithful f-sensitivity benchmark rho, the
+Figure-1 empirical-curve experiment, the quadrant data generators, and small helpers reused by
+the experiment runners. Needs only numpy/pandas/matplotlib.
 
-Benchmark rho (rho_bench) — a yardstick from the OBSERVED covariates and treatment: dropping
-X_j, the rho it consumes is the symmetric KL between the treated/control distributions of X_j
-measured over the WHOLE sample (POOLED, not conditioned on the other covariates X_{-j}):
-    rho_j     = max(D_KL(P(X_j|T=1)||P(X_j|T=0)), D_KL(P(X_j|T=0)||P(X_j|T=1)))
-    rho_bench = mean_j rho_j           (the AVERAGE observed covariate; Gamma_bench = max_j Gamma_j)
-Mirrors the MSM benchmark Gamma_j = max_v OR(v) on the same likelihood-ratio object, but
-f-sensitivity reads an average divergence where the MSM takes the worst-case level. There is no
-stratification (no max_s / mean_s): the pooled imbalance is confounded by any kept covariate
-correlated with X_j, so the DGP keeps the observed covariates independent.
+rho_bench = max_j rho_j over the observed covariates (the strongest one), mirroring
+Gamma_bench = max_j Gamma_j; dropping X_j, rho_j is the symmetric KL between its treated/control
+distributions measured POOLED (no conditioning on X_{-j}). The max matches the (f,rho)-selection
+condition, which must hold for every x. Covariates are drawn independently so the pooled rho_j
+reads X_j alone.
 
-This is the shared library imported by the paper's experiment runners (heterogeneous_run,
-spike_tail_run, quadrants_multiseed); it needs only numpy/pandas/matplotlib. Run it directly
-to (re)generate the Figure-1 empirical-curve figure.
+Run directly to (re)generate ib_figure1_empirical_curves.png.
 """
 import os
 import sys
 import tempfile
 import warnings
 
-# Force UTF-8 stdout so the Greek rho printed by callers survives redirection on Windows.
-try:
+try:                                 # UTF-8 stdout so the Greek rho survives redirection on Windows
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 except (AttributeError, ValueError):
@@ -30,37 +24,50 @@ except (AttributeError, ValueError):
 import numpy as np
 import pandas as pd
 import matplotlib
-if __name__ == "__main__":          # headless script run: render to file, never to a display
+if __name__ == "__main__":
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# Compact single-column style for the two-column layout (\columnwidth ~3in).
 plt.rcParams.update({
     "font.size": 7, "axes.titlesize": 8, "axes.labelsize": 7,
     "xtick.labelsize": 6.5, "ytick.labelsize": 6.5, "legend.fontsize": 6,
     "savefig.dpi": 600, "savefig.bbox": "tight", "figure.constrained_layout.use": False,
 })
-COL_W = 3.35   # target single-column width in inches
+COL_W = 3.35   # single-column width in inches
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from data_generation.Generator import Generator
 
-# Generator.generate shares one global NumPy RNG across n_jobs threads, so n_jobs>1 makes the
-# draws non-reproducible; passing N_JOBS=1 lets a single seed fully determine the data.
+# Generator shares one global RNG across threads; N_JOBS=1 keeps a single seed reproducible.
 N_JOBS = 1
 
-
-# =========================================================================== #
-# Data-generating process
-# =========================================================================== #
-# Binary X_j ~ Bern(p_x[j]) independent of each other and of U ~ Bern(u_prob); logistic
-# treatment P(T=1|X,U) = sigmoid(t_base + sum_j beta_t[j] X_j + t_u*U) and outcome
-# Y = mean(X) + y_effect*U + true_ate*T + noise (noise ~ Normal(-1, 0.1)). beta_t sets the
-# per-covariate confounding the benchmark reads (larger -> larger rho_j). Used here to build
-# the quadrant generators. ROLE labels are retained only for figure layout.
 ROLE = {"X0": "strong", "X1": "high", "X2": "moderate", "X3": "mild", "X4": "weak"}
 
 
+# --------------------------- shared helpers -------------------------------- #
+def jsonable(a):
+    """1-D float array -> JSON-safe list (NaN -> null)."""
+    return [None if (v is None or np.isnan(v)) else float(v) for v in np.asarray(a, float)]
+
+
+def measure_or(df, col, K):
+    """Measured OR(u) = odds(T|marginal)/odds(T|col=u) per level (NaN where a level is sparse)."""
+    p1 = float((df["T"] == 1).mean())
+    odds_marg = p1 / (1.0 - p1)
+    OR = np.full(K, np.nan)
+    for z in range(K):
+        sub = df[df[col] == z]
+        if len(sub) < 20:
+            continue
+        e = float(np.clip((sub["T"] == 1).mean(), 1e-3, 1 - 1e-3))
+        OR[z] = odds_marg / (e / (1.0 - e))
+    return OR
+
+
+# --------------------------- data-generating process ----------------------- #
+# Binary X_j ~ Bern(p_x[j]) independent of each other and U ~ Bern(u_prob); logistic treatment
+# P(T=1|X,U)=sigmoid(t_base + sum_j beta_t[j] X_j + t_u U); Y = mean(X) + y_effect*U + true_ate*T
+# + noise. beta_t sets the per-covariate confounding the benchmark reads.
 def make_generator_ib(p_x=(0.50, 0.45, 0.40, 0.55, 0.50), beta_t=(0.5, 0.5, 0.5, 0.5, 0.5),
                       u_prob=0.40, t_base=-0.85, t_u=-0.8, y_effect=0.7, true_ate=1.0):
     p_x, beta_t = list(p_x), list(beta_t)
@@ -90,30 +97,22 @@ def x_cols_for(p_x):
     return [f"X{i}" for i in range(len(p_x))]
 
 
-# =========================================================================== #
-# The faithful benchmark rho (from observed covariates and treatment)
-# =========================================================================== #
-def kl_discrete(p, q, eps=1e-12):
-    """D_KL(p || q) for discrete distributions. Terms with p_i == 0 contribute 0; the
-    denominator is floored at eps so an empty cell does not produce inf."""
-    p = np.asarray(p, dtype=float)
-    q = np.asarray(q, dtype=float)
-    p = p / p.sum()
-    q = np.clip(q / q.sum(), eps, None)
-    mask = p > 0
-    return float(np.sum(p[mask] * np.log(p[mask] / q[mask])))
+# --------------------------- the faithful benchmark rho -------------------- #
+def f_kl(t, eps=1e-12):
+    """KL generator f(t) = t log t (argument floored at eps), vectorised over odds ratios."""
+    t = np.clip(np.asarray(t, dtype=float), eps, None)
+    return t * np.log(t)
 
 
-def benchmark_per_covariate(df, x_cols, t_col="T"):
-    """Drop each X_j and measure the arm shift over the WHOLE sample (POOLED): compare X_j's
-    treated/control distributions directly, without conditioning on the other covariates X_{-j}.
-        rho_j   = symmetric-KL(P(X_j|T=1), P(X_j|T=0))   (f-sensitivity, KL)
-        gamma_j = max_v max(OR(v), 1/OR(v))               (MSM / Tan companion, worst level)
-    No stratification, so there is no max_s / mean_s -- each covariate yields a single rho_j and
-    gamma_j. The pooled imbalance is confounded by any kept covariate correlated with X_j, so the
-    DGP must keep the observed covariates independent for rho_j to read X_j alone. Outcome Y is
-    never read. Returns a per-covariate frame."""
+def benchmark_per_covariate(df, x_cols, t_col="T", eps=1e-3):
+    """Drop each X_j and read its pooled treated/control shift. Per level v, the f-sensitivity odds
+    ratio OR(v) = [e/(1-e)] / [e(v)/(1-e(v))] (e marginal, e(v)=P(T=1|X_j=v); Eq. 1 orientation):
+        rho_j   = max{ E_{T=1}[f(OR)], E_{T=0}[f(OR^-1)] },  f(t)=t log t   (f-sensitivity, Eq. 3)
+        gamma_j = max_v max(OR(v), 1/OR(v))                                 (MSM / Tan, worst level)
+    No stratification; Y is never read. Returns a per-covariate frame."""
     rows = []
+    e_marg = float((df[t_col] == 1).mean())
+    odds_marg = e_marg / (1.0 - e_marg)
     for j in x_cols:
         levels = sorted(df[j].unique())
         tr = df.loc[df[t_col] == 1, j]
@@ -122,19 +121,20 @@ def benchmark_per_covariate(df, x_cols, t_col="T"):
         ct_cnt = np.array([(ct == lv).sum() for lv in levels], dtype=float)
         p1 = tr_cnt / tr_cnt.sum()                       # P(X_j | T=1)
         p0 = ct_cnt / ct_cnt.sum()                       # P(X_j | T=0)
-        # rho_j is an average-divergence object (symmetric KL); gamma_j the worst-case level OR.
-        ratio = p1 / np.clip(p0, 1e-12, None)
+        e_v = np.clip(tr_cnt / np.clip(tr_cnt + ct_cnt, 1.0, None), eps, 1.0 - eps)
+        OR = odds_marg / (e_v / (1.0 - e_v))
+        rho_j = max(float(np.sum(p1 * f_kl(OR))),
+                    float(np.sum(p0 * f_kl(1.0 / OR))))
         rows.append({"covariate": j,
-                     "rho_j": max(kl_discrete(p1, p0), kl_discrete(p0, p1)),
-                     "gamma_j": float(np.max(np.maximum(ratio, 1.0 / ratio)))})
+                     "rho_j": rho_j,
+                     "gamma_j": float(np.max(np.maximum(OR, 1.0 / OR)))})
     return pd.DataFrame(rows)
 
 
 def compute_benchmark(gen, x_cols, n_rows=5000, n_seeds=20, verbose=True):
-    """Run the pooled benchmark over many seeds and aggregate. Returns (summary_df, rho_bench,
-    gamma_argmax, gamma_bench); rho_bench = mean_j mean_seed rho_j averages over the observed
-    covariates (the f-sensitivity budget), while gamma_bench = max_j mean_seed gamma_j keeps the
-    MSM worst-case covariate and gamma_argmax names it."""
+    """Run the pooled benchmark over many seeds. Returns (summary_df, rho_bench, gamma_argmax,
+    gamma_bench) with rho_bench = max_j mean_seed rho_j and gamma_bench = max_j mean_seed gamma_j
+    (the strongest / worst-case covariate). The benchmark std over seeds is stored in summary.attrs."""
     tmp = tempfile.mkdtemp()
     per_seed = []
     for seed in range(n_seeds):
@@ -151,16 +151,13 @@ def compute_benchmark(gen, x_cols, n_rows=5000, n_seeds=20, verbose=True):
                .reindex(x_cols))
     summary["role"] = [ROLE.get(c, "") for c in summary.index]
 
-    rho_bench = float(summary["rho_mean"].mean())            # mean_j: the average observed covariate
+    rho_argmax = summary["rho_mean"].idxmax()
+    rho_bench = float(summary.loc[rho_argmax, "rho_mean"])
     gamma_argmax = summary["gamma_mean"].idxmax()
-    gamma_bench = float(summary.loc[gamma_argmax, "gamma_mean"])   # max_j: the worst-case covariate
+    gamma_bench = float(summary.loc[gamma_argmax, "gamma_mean"])
 
-    # Seed-to-seed spread of the benchmark, for the paper's error bars. The point estimates above
-    # aggregate per-covariate seed-means (mean_j / max_j); the spread re-applies the SAME
-    # aggregation within each seed (rho: mean_j rho_j(seed); gamma: max_j gamma_j(seed)) and takes
-    # the std over seeds. (rho_bench equals the mean of its per-seed values; gamma_bench, a max of
-    # seed-means, is a slightly more stable summary than the per-seed max used only for the spread.)
-    per_seed_bench = allres.groupby("seed").agg(rho=("rho_j", "mean"), gamma=("gamma_j", "max"))
+    # Seed spread for error bars: re-apply max-over-covariates within each seed, then std over seeds.
+    per_seed_bench = allres.groupby("seed").agg(rho=("rho_j", "max"), gamma=("gamma_j", "max"))
     summary.attrs["rho_bench_std"] = float(per_seed_bench["rho"].std(ddof=0))
     summary.attrs["gamma_bench_std"] = float(per_seed_bench["gamma"].std(ddof=0))
 
@@ -168,19 +165,80 @@ def compute_benchmark(gen, x_cols, n_rows=5000, n_seeds=20, verbose=True):
         print(f"\nStep 1 - benchmark rho per dropped covariate "
               f"({n_seeds} seeds, N={n_rows}, DIM={len(x_cols)}):")
         print(summary.round(4).to_string())
-        print(f"\n  rho_bench   = mean_j rho_j = {rho_bench:.4f}  (averaged over {len(x_cols)} covariates)")
+        print(f"\n  rho_bench   = max_j rho_j = {rho_bench:.4f}  (strongest of {len(x_cols)} covariates)")
         print(f"  gamma_bench = max_j gamma_j = {gamma_bench:.3f}  (worst covariate: {gamma_argmax})")
     return summary, rho_bench, gamma_argmax, gamma_bench
 
 
-# =========================================================================== #
-# Empirical OR(x,U) curves (Figure-1 on simulated data, the paper's fig1-curves).
-# A binary covariate gives only a 2-point OR, so the dropped confounder is MULTI-VALUED (a
-# K-level grid over u in [0,1]). We shape the per-level propensity e(u); the realized
-# OR(u) = odds(T|marginal)/odds(T|u) is then measured from the data.
-# =========================================================================== #
-EMP_K = 81        # confounder levels (fine grid so narrow dips are resolved)
-EMP_N = 80000     # samples per seed (large so the measured OR line is smooth)
+# --------------------------- recovery check (closed-form truth) ------------ #
+# In the IB DGP U is binary and the propensity is known, so the (f,rho) value and worst-case ratio
+# U induces are analytic -- no sampling, no solver. Consumed by quadrants_recovery_run.py.
+def _sigmoid(z):
+    return 1.0 / (1.0 + np.exp(-np.asarray(z, dtype=float)))
+
+
+def true_rho_from_U(p_x=(0.50, 0.45, 0.40, 0.55, 0.50), beta_t=(0.5, 0.5, 0.5, 0.5, 0.5),
+                    u_prob=0.40, t_base=-0.85, t_u=-0.8, eps=1e-3):
+    """Closed-form (f,rho)-divergence (KL, Eq. 3) the binary hidden U induces. Returns
+    (rho_perx, rho_pooled): rho_perx is the per-covariate-cell worst case (the definitional truth,
+    must hold for almost every x); rho_pooled marginalises X out (what the pooled estimator targets).
+    OR(x,u) = [e(x)/(1-e(x))] / [e*(x,u)/(1-e*(x,u))], e*(x,u)=sigmoid(logit_x + t_u u)."""
+    p_x, beta_t = np.asarray(p_x, float), np.asarray(beta_t, float)
+    dim = len(p_x)
+    pu = np.array([1.0 - u_prob, u_prob])
+    u_lvl = np.array([0.0, 1.0])
+    odds = lambda e: np.clip(e, eps, 1 - eps) / (1.0 - np.clip(e, eps, 1 - eps))
+    rho_perx = 0.0
+    pT1_givenU = np.zeros(2)
+    for mask in range(2 ** dim):                             # enumerate covariate cells x
+        x = np.array([(mask >> j) & 1 for j in range(dim)], float)
+        px = float(np.prod(np.where(x == 1, p_x, 1.0 - p_x)))
+        e_star = _sigmoid(t_base + float(beta_t @ x) + t_u * u_lvl)
+        e_x = float(pu @ e_star)
+        OR = np.clip(odds(e_x) / odds(e_star), eps, None)
+        wT1 = pu * e_star / e_x                              # P(U=u | x, T=1)
+        wT0 = pu * (1 - e_star) / (1 - e_x)                  # P(U=u | x, T=0)
+        rho_perx = max(rho_perx,
+                       max(float(wT1 @ f_kl(OR)), float(wT0 @ f_kl(1.0 / OR))))
+        pT1_givenU += px * e_star
+    e_marg = float(pu @ pT1_givenU)
+    OR_p = np.clip(odds(e_marg) / odds(pT1_givenU), eps, None)
+    wT1_p = pu * pT1_givenU / e_marg
+    wT0_p = pu * (1 - pT1_givenU) / (1 - e_marg)
+    rho_pooled = max(float(wT1_p @ f_kl(OR_p)), float(wT0_p @ f_kl(1.0 / OR_p)))
+    return rho_perx, rho_pooled
+
+
+def true_gamma_from_U(p_x=(0.50, 0.45, 0.40, 0.55, 0.50), beta_t=(0.5, 0.5, 0.5, 0.5, 0.5),
+                      u_prob=0.40, t_base=-0.85, t_u=-0.8, eps=1e-3):
+    """Closed-form worst-case odds ratio (MSM Gamma, Eq. 1) the binary hidden U induces -- the MSM
+    companion to true_rho_from_U. Returns (gamma_perx, gamma_pooled)."""
+    p_x, beta_t = np.asarray(p_x, float), np.asarray(beta_t, float)
+    dim = len(p_x)
+    pu = np.array([1.0 - u_prob, u_prob])
+    u_lvl = np.array([0.0, 1.0])
+    odds = lambda e: np.clip(e, eps, 1 - eps) / (1.0 - np.clip(e, eps, 1 - eps))
+    gamma_perx = 1.0
+    pT1_givenU = np.zeros(2)
+    for mask in range(2 ** dim):
+        x = np.array([(mask >> j) & 1 for j in range(dim)], float)
+        px = float(np.prod(np.where(x == 1, p_x, 1.0 - p_x)))
+        e_star = _sigmoid(t_base + float(beta_t @ x) + t_u * u_lvl)
+        e_x = float(pu @ e_star)
+        OR = np.clip(odds(e_x) / odds(e_star), eps, None)
+        gamma_perx = max(gamma_perx, float(np.max(np.maximum(OR, 1.0 / OR))))
+        pT1_givenU += px * e_star
+    e_marg = float(pu @ pT1_givenU)
+    OR_p = np.clip(odds(e_marg) / odds(pT1_givenU), eps, None)
+    gamma_pooled = float(np.max(np.maximum(OR_p, 1.0 / OR_p)))
+    return gamma_perx, gamma_pooled
+
+
+# --------------------------- Figure-1 empirical OR(x,U) curves ------------- #
+# A binary covariate gives only a 2-point OR, so here the dropped confounder is MULTI-VALUED (a
+# K-level grid over u in [0,1]): we shape the per-level propensity and measure the realized OR(u).
+EMP_K = 81        # confounder levels
+EMP_N = 80000     # samples per seed
 
 
 def _gauss_np(u, c, w):
@@ -188,11 +246,8 @@ def _gauss_np(u, c, w):
 
 
 def _confounder_propensities():
-    """Per-level treatment propensity e(u) for each confounder, shaped to give:
-    matched_gamma -> spike (one narrow dip -> tall narrow OR, small rho) vs broad
-                     (wide dip -> same peak OR, large rho);
-    matched_rho   -> no-spike (moderate wide dip) vs tail-spike (same body + a deep narrow
-                     tail dip -> OR explodes there, average ~unchanged)."""
+    """Per-level propensity e(u) for each confounder: matched_gamma -> spike vs broad (same peak OR,
+    different rho); matched_rho -> no-spike vs tail-spike (same body, a deep narrow tail dip)."""
     u = np.linspace(0.0, 1.0, EMP_K)
     spike = 0.5 - 0.235 * _gauss_np(u, 0.08, 0.032)
     broad = 0.5 - 0.285 * _gauss_np(u, 0.50, 0.20)
@@ -208,8 +263,7 @@ def _confounder_propensities():
 
 
 def _make_confounder_generator(propensity):
-    """Single multi-valued confounder Z ~ Uniform{0..K-1}; T ~ Bernoulli(propensity[Z]);
-    trivial U and Y. Z is the dropped covariate we treat as the confounder U."""
+    """Single multi-valued confounder Z ~ Uniform{0..K-1}; T ~ Bernoulli(propensity[Z])."""
     K = len(propensity)
     sizes = {"U": 1, "X": 1, "T": 1, "Y": 1}
     generators = {
@@ -223,9 +277,8 @@ def _make_confounder_generator(propensity):
 
 
 def _empirical_or(df, K, min_count=20):
-    """Measure OR(u) = odds(T=1|marginal)/odds(T=1|Z=u) per level, plus Gamma=max OR (MSM
-    worst-case). rho is intentionally NOT computed here (the faithful benchmark rho is the
-    symmetric KL from benchmark_per_covariate); this OR-curve view only reports Gamma."""
+    """OR(u) per level plus the MSM worst-case Gamma = max_u max(OR, 1/OR). rho is NOT computed
+    here (it comes from benchmark_per_covariate); this OR-curve view only reports Gamma."""
     p1 = float((df["T"] == 1).mean())
     odds_marg = p1 / (1 - p1)
     OR = np.full(K, np.nan)
@@ -236,14 +289,13 @@ def _empirical_or(df, K, min_count=20):
         e = float(np.clip((sub["T"] == 1).mean(), 1e-3, 1 - 1e-3))
         OR[z] = odds_marg / (e / (1 - e))
     v = ~np.isnan(OR)
-    gamma = float(np.nanmax(OR[v]))
+    gamma = float(np.nanmax(np.maximum(OR[v], 1.0 / OR[v])))
     return OR, gamma
 
 
 def run_empirical_curves(out_png=None, n=EMP_N, n_seeds=5, verbose=True):
-    """Generate data from the multi-valued versions of both experiments over n_seeds and
-    plot the MEASURED OR(u) lines with +/-1 std error bands; Gamma is reported as mean +/-
-    std across seeds. Writes ib_figure1_empirical_curves.png."""
+    """Plot the measured OR(u) lines (+/-1 std bands) for both experiments over n_seeds seeds;
+    Gamma is reported as mean +/- std. Writes ib_figure1_empirical_curves.png."""
     out_png = out_png or os.path.join(os.path.dirname(__file__), "ib_figure1_empirical_curves.png")
     u, specs = _confounder_propensities()
     tmp = tempfile.mkdtemp()
@@ -289,20 +341,13 @@ def run_empirical_curves(out_png=None, n=EMP_N, n_seeds=5, verbose=True):
     return fig
 
 
-# =========================================================================== #
-# Quadrant data generators (the breakdown/conclusion runner lives in quadrants_multiseed.py,
-# which imports make_quadrant_generator, compute_benchmark and QUADRANT_SPECS from here).
-# =========================================================================== #
-# Each scenario sets the SHAPE of all three observed covariates via per-covariate (p_x, beta_t)
-# lists, because rho_bench = mean_j rho_j now averages over covariates while gamma_bench =
-# max_j gamma_j keeps the worst one. The two budgets therefore read the covariate SET
-# differently, which is the lever for disagreement:
-#   - a single RARE-STRONG covariate among weak ones lifts max_j gamma (large gamma_bench) while
-#     mean_j rho stays small (rho-robust, Gamma-NOT);
-#   - a UNIFORMLY common-moderate set lifts mean_j rho (large rho_bench) while no single gamma is
-#     large (Gamma-robust, rho-NOT);
-#   - all-weak vs all-strong covariates, with weak/strong U, give both-robust / both-not.
-# Covariates are drawn independently, so the pooled per-covariate rho_j reads each one alone.
+# --------------------------- quadrant data generators --------------------- #
+# Each scenario sets the (p_x, beta_t) shape of all three observed covariates. Both budgets take
+# the strongest covariate (max_j), so a disagreement is driven by how each model's breakdown
+# responds to that covariate: a rare-strong covariate flips the MSM bound (rho-robust, Gamma-not);
+# a uniformly common-moderate set flips f-sensitivity (Gamma-robust, rho-not); all-weak / all-strong
+# give both-robust / both-not. Covariates are independent so the pooled rho_j reads each one alone.
+# Consumed by quadrants_recovery_run.py.
 QUADRANT_TBASE = -0.6
 QUADRANT_SPECS = {
     "both_robust":          dict(p_x=(0.45, 0.45, 0.45), beta_t=(0.40, 0.40, 0.40),
@@ -321,9 +366,7 @@ QUADRANT_SPECS = {
 
 
 def make_quadrant_generator(spec):
-    """3 binary covariates whose per-covariate (p_x, beta_t) shapes are set by the spec, so the
-    averaged f-sensitivity budget rho_bench = mean_j rho_j and the worst-case MSM budget
-    gamma_bench = max_j gamma_j can disagree (see the scenario table above); hidden U is set by
+    """3 binary covariates whose per-covariate (p_x, beta_t) are set by the spec; hidden U by
     (u_prob, t_u, y_effect)."""
     return make_generator_ib(p_x=spec["p_x"], beta_t=spec["beta_t"], u_prob=spec["u_prob"],
                              t_base=QUADRANT_TBASE, t_u=spec["t_u"], y_effect=spec["y_effect"],
